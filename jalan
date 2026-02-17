@@ -68,7 +68,7 @@ def is_admin(uid):
     cursor.execute("SELECT * FROM admins WHERE user_id=?", (uid,))
     return cursor.fetchone() or is_owner(uid)
 
-# ================= COMMANDS =================
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     cursor.execute("INSERT OR IGNORE INTO users VALUES (?)", (uid,))
@@ -83,7 +83,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# --------- Tambah Kategori ---------
+# ================= OWNER COMMANDS =================
+# ----- Tambah Kategori -----
 async def addkategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         await update.message.reply_text("Khusus owner.")
@@ -96,7 +97,38 @@ async def addkategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     await update.message.reply_text(f"✅ Kategori '{nama}' berhasil ditambahkan.")
 
-# --------- Tambah Produk ---------
+# ----- Hapus Kategori -----
+async def delkategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("Khusus owner.")
+        return
+    if not context.args:
+        await update.message.reply_text("Gunakan format:\n/delkategori IDKategori")
+        return
+    try:
+        cat_id = int(context.args[0])
+        cursor.execute("DELETE FROM categories WHERE id=?", (cat_id,))
+        conn.commit()
+        await update.message.reply_text(f"❌ Kategori ID {cat_id} berhasil dihapus.")
+    except:
+        await update.message.reply_text("Format salah, masukkan ID kategori sebagai angka.")
+
+# ----- List Kategori -----
+async def listkategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("Khusus owner.")
+        return
+    cursor.execute("SELECT * FROM categories")
+    cats = cursor.fetchall()
+    if not cats:
+        await update.message.reply_text("Belum ada kategori.")
+        return
+    text = "📂 Daftar Kategori:\n"
+    for c in cats:
+        text += f"ID: {c[0]} | Nama: {c[1]}\n"
+    await update.message.reply_text(text)
+
+# ----- Tambah Produk -----
 async def addproduk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         await update.message.reply_text("Khusus owner.")
@@ -117,11 +149,42 @@ async def addproduk(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Format salah.\nContoh:\n/addproduk Nama|Harga|Stok|KategoriID|Deskripsi"
         )
 
-# --------- List Produk ---------
+# ----- Hapus Produk -----
+async def delproduk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("Khusus owner.")
+        return
+    if not context.args:
+        await update.message.reply_text("Gunakan format:\n/delproduk IDProduk")
+        return
+    try:
+        prod_id = int(context.args[0])
+        cursor.execute("DELETE FROM products WHERE id=?", (prod_id,))
+        conn.commit()
+        await update.message.reply_text(f"❌ Produk ID {prod_id} berhasil dihapus.")
+    except:
+        await update.message.reply_text("Format salah, masukkan ID produk sebagai angka.")
+
+# ----- List Produk -----
+async def listproduk_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("Khusus owner.")
+        return
+    cursor.execute("""SELECT p.id, p.nama, p.harga, p.stok, c.nama, p.deskripsi 
+                      FROM products p LEFT JOIN categories c ON p.kategori_id=c.id""")
+    prods = cursor.fetchall()
+    if not prods:
+        await update.message.reply_text("Belum ada produk.")
+        return
+    text = "📦 Daftar Produk:\n"
+    for p in prods:
+        text += f"ID: {p[0]} | Nama: {p[1]} | Harga: Rp{p[2]} | Stok: {p[3]} | Kategori: {p[4]}\nDeskripsi: {p[5]}\n\n"
+    await update.message.reply_text(text)
+
+# ================= LIST PRODUK USER =================
 async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.data.startswith("cat_"):
         cat_id = int(query.data.split("_")[1])
         cursor.execute("SELECT * FROM products WHERE kategori_id=?", (cat_id,))
@@ -129,7 +192,6 @@ async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not data:
             await query.edit_message_text("Produk kosong di kategori ini.")
             return
-
         keyboard = [
             [InlineKeyboardButton(f"{p[1]} | Rp{p[2]} | Stok:{p[3]}", callback_data=f"detail_{p[0]}")]
             for p in data
@@ -139,46 +201,40 @@ async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("Kategori tidak ditemukan.")
 
-# --------- Detail Produk ---------
+# ----- DETAIL PRODUK -----
 async def detail_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     pid = int(query.data.split("_")[1])
     cursor.execute("SELECT * FROM products WHERE id=?", (pid,))
     p = cursor.fetchone()
     if not p:
         await query.edit_message_text("Produk tidak ditemukan.")
         return
-
     keyboard = [
         [InlineKeyboardButton("🛒 BELI", callback_data=f"buy_{pid}")],
         [InlineKeyboardButton("🔙 Kembali", callback_data=f"cat_{p[4]}")]
     ]
-
     await query.edit_message_text(
         f"📦 {p[1]}\nHarga: Rp{p[2]}\nStok: {p[3]}\nDeskripsi: {p[5]}\n\n{PAYMENT_INFO}",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# --------- Beli Produk ---------
+# ================= TRANSAKSI =================
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
     pid = int(query.data.split("_")[1])
-
     cursor.execute("SELECT * FROM transactions WHERE user_id=? AND status='PENDING'", (uid,))
     if cursor.fetchone():
         await query.answer("Masih ada transaksi pending!", show_alert=True)
         return
-
     cursor.execute("SELECT stok FROM products WHERE id=?", (pid,))
     stok = cursor.fetchone()[0]
     if stok <= 0:
         await query.answer("Stok habis!", show_alert=True)
         return
-
     cursor.execute(
         "INSERT INTO transactions (user_id,product_id,status,tanggal) VALUES (?,?,?,?)",
         (uid, pid, "PENDING", now_wib())
@@ -186,7 +242,6 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     await query.edit_message_text("Silakan transfer & kirim foto bukti.\nStatus: PENDING")
 
-# --------- Upload Bukti (ACC/CANCEL) ---------
 async def bukti(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     cursor.execute("SELECT * FROM transactions WHERE user_id=? AND status='PENDING'", (uid,))
@@ -194,18 +249,14 @@ async def bukti(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not trx:
         await update.message.reply_text("Tidak ada transaksi pending.")
         return
-
     keyboard = [[
         InlineKeyboardButton("✅ ACC", callback_data=f"acc_{trx[0]}"),
         InlineKeyboardButton("❌ CANCEL", callback_data=f"cancel_{trx[0]}")
     ]]
-
-    # Kirim ke semua admin/owner
     admins = OWNER_IDS.copy()
     cursor.execute("SELECT user_id FROM admins")
     for a in cursor.fetchall():
         admins.append(a[0])
-
     for admin_id in set(admins):
         try:
             await context.bot.send_photo(
@@ -216,24 +267,21 @@ async def bukti(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except:
             pass
-
     await update.message.reply_text("Bukti dikirim ke admin/owner. Silakan tunggu ACC.")
 
-# --------- ACC / CANCEL Inline ---------
+# ----- ACC / CANCEL -----
 async def acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if not is_admin(query.from_user.id):
         await query.answer("Kamu bukan admin/owner!", show_alert=True)
         return
-
     trx_id = int(query.data.split("_")[1])
     cursor.execute("SELECT user_id, product_id FROM transactions WHERE id=?", (trx_id,))
     row = cursor.fetchone()
     if not row:
         await query.edit_message_caption("Transaksi tidak ditemukan.")
         return
-
     uid, pid = row
     cursor.execute("SELECT file FROM products WHERE id=?", (pid,))
     encrypted_file = cursor.fetchone()[0]
@@ -241,11 +289,9 @@ async def acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = decrypted.split("\n")
     item = lines[0] if lines and lines[0] != "" else "Produk"
     remaining = "\n".join(lines[1:]) if len(lines) > 1 else ""
-
     cursor.execute("UPDATE products SET file=?, stok=stok-1 WHERE id=?", (encrypt(remaining), pid))
     cursor.execute("UPDATE transactions SET status='SUCCESS' WHERE id=?", (trx_id,))
     conn.commit()
-
     await context.bot.send_message(uid, f"✅ Transaksi berhasil!\nProduk: {item}\nStatus: SUCCESS\nTerima kasih sudah membeli.")
     await query.edit_message_caption("✅ Transaksi ACC")
 
@@ -255,17 +301,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(query.from_user.id):
         await query.answer("Kamu bukan admin/owner!", show_alert=True)
         return
-
     trx_id = int(query.data.split("_")[1])
     cursor.execute("SELECT user_id FROM transactions WHERE id=?", (trx_id,))
     uid = cursor.fetchone()[0]
     cursor.execute("UPDATE transactions SET status='CANCEL' WHERE id=?", (trx_id,))
     conn.commit()
-
     await context.bot.send_message(uid, f"❌ Transaksi dibatalkan.\nTRX ID: {trx_id}")
     await query.edit_message_caption("❌ Transaksi CANCEL")
 
-# --------- Broadcast & Help ---------
+# ================= BROADCAST =================
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.message.from_user.id):
         return
@@ -279,16 +323,20 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     await update.message.reply_text("Broadcast selesai.")
 
+# ================= HELP =================
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"""
 🔥 GARFIELD STORE BOT 🔥
 
-📌 Commands:
-/start - Menu awal kategori
-/addkategori NamaKategori - Tambah kategori baru (Owner)
-/addproduk Nama|Harga|Stok|KategoriID|Deskripsi - Tambah produk (Owner)
-/broadcast Pesan - Broadcast ke semua user (Owner)
-/help - Tampilkan panduan
+📌 Commands Owner:
+/addkategori NamaKategori - Tambah kategori
+/delkategori IDKategori - Hapus kategori
+/listkategori - List semua kategori
+/addproduk Nama|Harga|Stok|KategoriID|Deskripsi - Tambah produk
+/delproduk IDProduk - Hapus produk
+/listproduk - List semua produk
+/broadcast Pesan - Broadcast ke semua user
+/help - Panduan
 
 💳 Payment Info:
 {PAYMENT_INFO}
@@ -298,16 +346,25 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= MAIN =================
 app = ApplicationBuilder().token(TOKEN).build()
 
+# Command handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("addkategori", addkategori))
+app.add_handler(CommandHandler("delkategori", delkategori))
+app.add_handler(CommandHandler("listkategori", listkategori))
 app.add_handler(CommandHandler("addproduk", addproduk))
+app.add_handler(CommandHandler("delproduk", delproduk))
+app.add_handler(CommandHandler("listproduk", listproduk_owner))
 app.add_handler(CommandHandler("broadcast", broadcast))
 app.add_handler(CommandHandler("help", help_cmd))
+
+# CallbackQuery
 app.add_handler(CallbackQueryHandler(list_produk, pattern="cat_"))
 app.add_handler(CallbackQueryHandler(detail_produk, pattern="detail_"))
 app.add_handler(CallbackQueryHandler(buy, pattern="buy_"))
 app.add_handler(CallbackQueryHandler(acc, pattern="acc_"))
 app.add_handler(CallbackQueryHandler(cancel, pattern="cancel_"))
+
+# Photo handler
 app.add_handler(MessageHandler(filters.PHOTO, bukti))
 
 app.run_polling()
